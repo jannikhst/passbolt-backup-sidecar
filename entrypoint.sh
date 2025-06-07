@@ -15,8 +15,11 @@ chmod 644 /var/log/backup.log
 # Ensure backup directory exists
 mkdir -p /backups
 
+# Setup custom cron schedule
+/usr/local/bin/setup-cron.sh
+
 echo "Starting Passbolt Backup Sidecar..."
-echo "Backup schedule: Every 12 hours"
+echo "Backup schedule: ${BACKUP_SCHEDULE:-0 */12 * * *}"
 echo "Backup directory: /backups"
 echo "Log files: /var/log/cron.log, /var/log/backup.log"
 

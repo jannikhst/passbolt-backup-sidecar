@@ -8,6 +8,8 @@ on:
     paths:
       - 'Dockerfile'
       - 'backup.sh'
+      - 'restore.sh'
+      - 'setup-cron.sh'
       - 'entrypoint.sh'
       - 'crontab'
       - '.github/workflows/docker-build.yml'
@@ -18,6 +20,8 @@ on:
     paths:
       - 'Dockerfile'
       - 'backup.sh'
+      - 'restore.sh'
+      - 'setup-cron.sh'
       - 'entrypoint.sh'
       - 'crontab'
       - '.github/workflows/docker-build.yml'

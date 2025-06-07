@@ -11,20 +11,24 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     openssl \
+    openssh-client \
+    sshpass \
     && rm -rf /var/lib/apt/lists/*
 
 # Create backup directory
 RUN mkdir -p /backups
 
-# Copy backup script
+# Copy scripts
 COPY backup.sh /usr/local/bin/backup.sh
-RUN chmod +x /usr/local/bin/backup.sh
+COPY restore.sh /usr/local/bin/restore.sh
+COPY setup-cron.sh /usr/local/bin/setup-cron.sh
+RUN chmod +x /usr/local/bin/backup.sh /usr/local/bin/restore.sh /usr/local/bin/setup-cron.sh
 
 # Copy crontab file
 COPY crontab /etc/cron.d/backup-cron
 RUN chmod 0644 /etc/cron.d/backup-cron
 
-# Apply cron job
+# Apply cron job (will be overridden by setup-cron.sh if BACKUP_SCHEDULE is set)
 RUN crontab /etc/cron.d/backup-cron
 
 # Create log file for cron
