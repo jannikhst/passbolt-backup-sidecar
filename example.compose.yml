@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # MariaDB Database
+  passbolt-db:
+    image: mariadb:10.11
+    container_name: passbolt-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-passbolt}
+      MYSQL_USER: ${MYSQL_USER:-passbolt}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - passbolt_db_data:/var/lib/mysql
+    networks:
+      - passbolt_network
+
+  # Passbolt Application
+  passbolt:
+    image: passbolt/passbolt:latest-ce
+    container_name: passbolt
+    restart: unless-stopped
+    depends_on:
+      - passbolt-db
+    environment:
+      APP_FULL_BASE_URL: ${APP_FULL_BASE_URL}
+      DATASOURCES_DEFAULT_HOST: passbolt-db
+      DATASOURCES_DEFAULT_USERNAME: ${MYSQL_USER:-passbolt}
+      DATASOURCES_DEFAULT_PASSWORD: ${MYSQL_PASSWORD}
+      DATASOURCES_DEFAULT_DATABASE: ${MYSQL_DATABASE:-passbolt}
+    volumes:
+      - passbolt_gpg_data:/etc/passbolt/gpg
+      - passbolt_jwt_data:/etc/passbolt/jwt
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - passbolt_network
+
+  # Passbolt Backup Sidecar
+  passbolt-backup:
+    build: .
+    container_name: passbolt-backup
+    restart: unless-stopped
+    depends_on:
+      - passbolt
+      - passbolt-db
+    environment:
+      # Database connection
+      MYSQL_HOST: passbolt-db
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-passbolt}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-passbolt}
+      
+      # Container settings
+      PASSBOLT_CONTAINER: passbolt
+      
+      # Backup settings
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      
+      # Optional HTTP endpoint for remote backup
+      HTTP_ENDPOINT: ${HTTP_ENDPOINT:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+    volumes:
+      # Backup storage
+      - ./backups:/backups
+      
+      # Docker socket for container access
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      # Optional: Direct access to Passbolt volumes (alternative to docker exec)
+      # - passbolt_gpg_data:/passbolt-data/gpg:ro
+    networks:
+      - passbolt_network
+
+volumes:
+  passbolt_db_data:
+  passbolt_gpg_data:
+  passbolt_jwt_data:
+
+networks:
+  passbolt_network:
+    driver: bridge
