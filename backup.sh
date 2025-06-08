@@ -159,7 +159,7 @@ log "Backup created successfully: ${FINAL_BACKUP} (${BACKUP_SIZE})"
 # 6. Encrypt local backup if encryption key is provided
 if [ -n "${ENCRYPTION_KEY}" ]; then
     log "Encrypting local backup..."
-    openssl enc -aes-256-cbc -salt -in "${FINAL_BACKUP}" -out "${ENCRYPTED_BACKUP}" -k "${ENCRYPTION_KEY}" || error_exit "Local backup encryption failed"
+    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 -in "${FINAL_BACKUP}" -out "${ENCRYPTED_BACKUP}" -k "${ENCRYPTION_KEY}" || error_exit "Local backup encryption failed"
     
     # Remove unencrypted backup for security
     rm -f "${FINAL_BACKUP}"
@@ -212,7 +212,7 @@ upload_backup() {
         elif [ -n "${ENCRYPTION_KEY}" ]; then
             # Encrypt backup before sending
             local encrypted_backup="${backup_file}.enc"
-            openssl enc -aes-256-cbc -salt -in "${backup_file}" -out "${encrypted_backup}" -k "${ENCRYPTION_KEY}" || {
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 -in "${backup_file}" -out "${encrypted_backup}" -k "${ENCRYPTION_KEY}" || {
                 log "WARNING: Encryption failed for HTTP upload"
                 return 1
             }
@@ -273,7 +273,7 @@ upload_backup() {
             # Only encrypt if not already encrypted
             upload_file="${backup_file}.enc"
             upload_name="${backup_name}.enc"
-            openssl enc -aes-256-cbc -salt -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
                 log "WARNING: Encryption failed for FTP upload"
                 return 1
             }
@@ -302,7 +302,7 @@ upload_backup() {
             # Only encrypt if not already encrypted
             upload_file="${backup_file}.enc"
             upload_name="${backup_name}.enc"
-            openssl enc -aes-256-cbc -salt -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
                 log "WARNING: Encryption failed for SFTP upload"
                 return 1
             }
@@ -348,7 +348,7 @@ EOF
             # Only encrypt if not already encrypted
             upload_file="${backup_file}.enc"
             upload_name="${backup_name}.enc"
-            openssl enc -aes-256-cbc -salt -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
                 log "WARNING: Encryption failed for SCP upload"
                 return 1
             }

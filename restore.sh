@@ -137,7 +137,7 @@ if [[ "$BACKUP_FILE" == *.enc ]] || [ "$ENCRYPTED_BACKUP" = true ]; then
     
     log "Detected encrypted backup file, decrypting..."
     RESTORE_FILE="$TEMP_DIR/decrypted-backup.tar.gz"
-    openssl enc -aes-256-cbc -d -in "$BACKUP_FILE" -out "$RESTORE_FILE" -k "$ENCRYPTION_KEY" || error_exit "Failed to decrypt backup"
+    openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -in "$BACKUP_FILE" -out "$RESTORE_FILE" -k "$ENCRYPTION_KEY" || error_exit "Failed to decrypt backup"
     log "Backup decrypted successfully"
 fi
 
