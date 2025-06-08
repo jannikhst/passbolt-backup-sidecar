@@ -59,10 +59,10 @@ image: ghcr.io/jannikhst/passbolt-backup-sidecar:latest
 - `COMPRESSION_LEVEL` (default: 6) - gzip compression level (1-9)
 
 #### Security
-- `ENCRYPTION_KEY` - AES-256-CBC encryption key for backups
+- `ENCRYPTION_KEY` - Optional AES-256-CBC encryption key (encrypts backups for ALL upload methods)
 
 #### Upload Methods
-- `HTTP_ENDPOINT` - HTTP POST endpoint URL
+- `HTTP_ENDPOINT`, `HTTP_AUTH_HEADER`, `HTTP_AUTH_VALUE` - HTTP POST configuration
 - `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD`, `FTP_PATH` - FTP configuration
 - `SFTP_HOST`, `SFTP_USER`, `SFTP_PASSWORD`, `SFTP_KEY_FILE`, `SFTP_PATH` - SFTP configuration
 - `SCP_HOST`, `SCP_USER`, `SCP_KEY_FILE`, `SCP_PATH` - SCP configuration
@@ -194,15 +194,46 @@ docker exec passbolt-backup /usr/local/bin/restore.sh -f /backups/passbolt-backu
 
 ## Encryption
 
-All backup methods support AES-256-CBC encryption when `ENCRYPTION_KEY` is set:
+### Automatic Encryption for All Upload Methods
+
+When you set the `ENCRYPTION_KEY` environment variable, **ALL backup uploads are automatically encrypted** using AES-256-CBC:
+
+- ✅ **HTTP POST** - Encrypted before upload
+- ✅ **FTP** - Encrypted before upload  
+- ✅ **SFTP** - Encrypted before upload
+- ✅ **SCP** - Encrypted before upload
+
+### How It Works
 
 ```bash
-# Encrypt backup
+# Set encryption key to enable encryption for ALL methods
+ENCRYPTION_KEY=YourSecureEncryptionKey123
+
+# Configure any upload method - encryption happens automatically
+HTTP_ENDPOINT=https://backup.example.com/api/backups
+FTP_HOST=ftp.example.com
+SFTP_HOST=sftp.example.com
+SCP_HOST=scp.example.com
+```
+
+### File Naming
+- **Without encryption**: `passbolt-backup-2025-01-07_15-30.tar.gz`
+- **With encryption**: `passbolt-backup-2025-01-07_15-30.tar.gz.enc`
+
+### Manual Encryption/Decryption
+```bash
+# Encrypt backup manually
 openssl enc -aes-256-cbc -salt -in backup.tar.gz -out backup.tar.gz.enc -k "YourEncryptionKey"
 
-# Decrypt backup
+# Decrypt backup manually
 openssl enc -aes-256-cbc -d -in backup.tar.gz.enc -out backup.tar.gz -k "YourEncryptionKey"
 ```
+
+### Important Notes
+- 🔒 **Optional**: Only encrypts when `ENCRYPTION_KEY` is set
+- 🌐 **Universal**: Works with all upload methods automatically
+- 🔐 **Secure**: Uses AES-256-CBC with salt
+- 🧹 **Clean**: Temporary encrypted files are automatically deleted after upload
 
 ## License
 
