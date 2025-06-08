@@ -126,10 +126,33 @@ restore_gpg_keys() {
         local temp_gpg_dir="$TEMP_DIR/gpg-restore"
         mkdir -p "$temp_gpg_dir"
         cd "$temp_gpg_dir"
+        
+        log "Extracting GPG keys archive: $gpg_backup"
         tar -xzf "$gpg_backup" || error_exit "Failed to extract GPG keys"
         
-        # Copy GPG keys directly to volume
+        # Debug: Show what was extracted
+        log "Contents after extraction:"
+        ls -la .
+        
+        # Check if gpg directory exists
+        if [ ! -d "gpg" ]; then
+            error_exit "GPG directory not found after extraction. Archive structure may be different."
+        fi
+        
+        # Check if gpg directory has contents
+        if [ ! "$(ls -A gpg 2>/dev/null)" ]; then
+            error_exit "GPG directory is empty after extraction."
+        fi
+        
+        log "GPG directory contents:"
+        ls -la gpg/
+        
+        # Clear existing GPG keys
+        log "Clearing existing GPG keys from volume: $PASSBOLT_GPG_VOLUME"
         rm -rf "$PASSBOLT_GPG_VOLUME"/* || error_exit "Failed to clear existing GPG keys"
+        
+        # Copy GPG keys directly to volume
+        log "Copying GPG keys to volume..."
         cp -r gpg/* "$PASSBOLT_GPG_VOLUME/" || error_exit "Failed to copy GPG keys to volume"
         
         log "GPG keys restored successfully via volume mount"
