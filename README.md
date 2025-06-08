@@ -207,8 +207,11 @@ docker logs passbolt-backup
 
 ### Using the Restore Script
 ```bash
-# Full restore
-docker exec passbolt-backup /usr/local/bin/restore.sh /backups/passbolt-backup-2025-01-07_15-30.tar.gz
+# Full restore (interactive)
+docker exec -it passbolt-backup /usr/local/bin/restore.sh /backups/passbolt-backup-2025-01-07_15-30.tar.gz
+
+# Full restore (non-interactive)
+docker exec passbolt-backup /usr/local/bin/restore.sh /backups/passbolt-backup-2025-01-07_15-30.tar.gz -f
 
 # Database only
 docker exec passbolt-backup /usr/local/bin/restore.sh -d /backups/passbolt-backup-2025-01-07_15-30.tar.gz
