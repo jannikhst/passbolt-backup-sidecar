@@ -145,9 +145,22 @@ SCP_PATH=/backups
 ## Manual Operations
 
 ### Manual Backup
+
+You can create a backup manually at any time using the backup script:
+
 ```bash
+# Create backup immediately
 docker exec passbolt-backup /usr/local/bin/backup.sh
+
+# Alternative with docker-compose
+docker compose exec passbolt-backup /usr/local/bin/backup.sh
+
+# Interactive method
+docker exec -it passbolt-backup bash
+/usr/local/bin/backup.sh
 ```
+
+The manual backup uses all your configured settings (encryption, upload methods, retention policy) and creates the same comprehensive backup as the automated scheduled backups.
 
 ### View Logs
 ```bash
