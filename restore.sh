@@ -128,16 +128,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Decrypt backup if encrypted
+# Auto-detect encrypted backup and decrypt if needed
 RESTORE_FILE="$BACKUP_FILE"
-if [ "$ENCRYPTED_BACKUP" = true ]; then
+if [[ "$BACKUP_FILE" == *.enc ]] || [ "$ENCRYPTED_BACKUP" = true ]; then
     if [ -z "$ENCRYPTION_KEY" ]; then
         error_exit "ENCRYPTION_KEY environment variable is required for encrypted backups"
     fi
     
-    log "Decrypting backup file..."
+    log "Detected encrypted backup file, decrypting..."
     RESTORE_FILE="$TEMP_DIR/decrypted-backup.tar.gz"
     openssl enc -aes-256-cbc -d -in "$BACKUP_FILE" -out "$RESTORE_FILE" -k "$ENCRYPTION_KEY" || error_exit "Failed to decrypt backup"
+    log "Backup decrypted successfully"
 fi
 
 # Extract backup

@@ -41,6 +41,7 @@ services:
   # Passbolt Backup Sidecar
   passbolt-backup:
     build: .
+    # image: ghcr.io/jannikhst/passbolt-backup-sidecar:latest
     container_name: passbolt-backup
     restart: unless-stopped
     depends_on:

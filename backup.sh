@@ -59,11 +59,12 @@ error_exit() {
     exit 1
 }
 
-# Create timestamp for backup
-TIMESTAMP=$(date '+%Y-%m-%d_%H-%M')
+# Create timestamp for backup with seconds for uniqueness
+TIMESTAMP=$(date '+%Y-%m-%d_%H-%M-%S')
 BACKUP_NAME="passbolt-backup-${TIMESTAMP}"
 TEMP_DIR="/tmp/${BACKUP_NAME}"
 FINAL_BACKUP="${BACKUP_DIR}/${BACKUP_NAME}.tar.gz"
+ENCRYPTED_BACKUP="${BACKUP_DIR}/${BACKUP_NAME}.tar.gz.enc"
 
 log "Starting Passbolt backup: ${BACKUP_NAME}"
 
@@ -155,16 +156,60 @@ rm -rf "${TEMP_DIR}"
 BACKUP_SIZE=$(du -h "${FINAL_BACKUP}" | cut -f1)
 log "Backup created successfully: ${FINAL_BACKUP} (${BACKUP_SIZE})"
 
-# 6. Upload backups to remote locations
+# 6. Encrypt local backup if encryption key is provided
+if [ -n "${ENCRYPTION_KEY}" ]; then
+    log "Encrypting local backup..."
+    openssl enc -aes-256-cbc -salt -in "${FINAL_BACKUP}" -out "${ENCRYPTED_BACKUP}" -k "${ENCRYPTION_KEY}" || error_exit "Local backup encryption failed"
+    
+    # Remove unencrypted backup for security
+    rm -f "${FINAL_BACKUP}"
+    
+    # Update variables to point to encrypted backup
+    FINAL_BACKUP="${ENCRYPTED_BACKUP}"
+    BACKUP_SIZE=$(du -h "${FINAL_BACKUP}" | cut -f1)
+    log "Local backup encrypted successfully: ${FINAL_BACKUP} (${BACKUP_SIZE})"
+else
+    log "WARNING: No encryption key provided - backup stored unencrypted locally"
+fi
+
+# 7. Upload backups to remote locations
 upload_backup() {
     local backup_file="$1"
     local backup_name="$2"
+    
+    # Determine if backup is already encrypted (has .enc extension)
+    local is_encrypted=false
+    if [[ "${backup_file}" == *.enc ]]; then
+        is_encrypted=true
+        log "Backup is already encrypted locally"
+    fi
     
     # HTTP Upload
     if [ -n "${HTTP_ENDPOINT}" ]; then
         log "Uploading backup to HTTP endpoint..."
         
-        if [ -n "${ENCRYPTION_KEY}" ]; then
+        if [ "${is_encrypted}" = "true" ]; then
+            # Backup is already encrypted, upload directly
+            local curl_cmd="curl -s -w \"%{http_code}\" -X POST \
+                -H \"Content-Type: application/octet-stream\" \
+                -H \"X-Backup-Name: ${backup_name}\" \
+                -H \"X-Backup-Size: $(stat -c%s "${backup_file}")\""
+            
+            # Add optional authentication header
+            if [ -n "${HTTP_AUTH_HEADER}" ] && [ -n "${HTTP_AUTH_VALUE}" ]; then
+                curl_cmd="${curl_cmd} -H \"${HTTP_AUTH_HEADER}: ${HTTP_AUTH_VALUE}\""
+            fi
+            
+            curl_cmd="${curl_cmd} --data-binary \"@${backup_file}\" \"${HTTP_ENDPOINT}\""
+            
+            local http_response=$(eval ${curl_cmd} || echo "000")
+            
+            if [ "${http_response}" = "200" ] || [ "${http_response}" = "201" ]; then
+                log "Encrypted backup uploaded successfully to HTTP endpoint"
+            else
+                log "WARNING: Failed to upload backup to HTTP endpoint (HTTP ${http_response})"
+            fi
+        elif [ -n "${ENCRYPTION_KEY}" ]; then
             # Encrypt backup before sending
             local encrypted_backup="${backup_file}.enc"
             openssl enc -aes-256-cbc -salt -in "${backup_file}" -out "${encrypted_backup}" -k "${ENCRYPTION_KEY}" || {
@@ -224,7 +269,8 @@ upload_backup() {
         local upload_file="${backup_file}"
         local upload_name="${backup_name}"
         
-        if [ -n "${ENCRYPTION_KEY}" ]; then
+        if [ "${is_encrypted}" = "false" ] && [ -n "${ENCRYPTION_KEY}" ]; then
+            # Only encrypt if not already encrypted
             upload_file="${backup_file}.enc"
             upload_name="${backup_name}.enc"
             openssl enc -aes-256-cbc -salt -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
@@ -237,12 +283,12 @@ upload_backup() {
             --user "${FTP_USER}:${FTP_PASSWORD}" \
             --ftp-create-dirs || {
             log "WARNING: FTP upload failed"
-            [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
+            [ "${is_encrypted}" = "false" ] && [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
             return 1
         }
         
         log "Backup uploaded successfully to FTP server"
-        [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
+        [ "${is_encrypted}" = "false" ] && [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
     fi
     
     # SFTP Upload
@@ -252,7 +298,8 @@ upload_backup() {
         local upload_file="${backup_file}"
         local upload_name="${backup_name}"
         
-        if [ -n "${ENCRYPTION_KEY}" ]; then
+        if [ "${is_encrypted}" = "false" ] && [ -n "${ENCRYPTION_KEY}" ]; then
+            # Only encrypt if not already encrypted
             upload_file="${backup_file}.enc"
             upload_name="${backup_name}.enc"
             openssl enc -aes-256-cbc -salt -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
@@ -277,7 +324,7 @@ quit
 EOF
         else
             log "WARNING: SFTP credentials not properly configured"
-            [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
+            [ "${is_encrypted}" = "false" ] && [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
             return 1
         fi
         
@@ -287,7 +334,7 @@ EOF
             log "WARNING: SFTP upload failed"
         fi
         
-        [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
+        [ "${is_encrypted}" = "false" ] && [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
     fi
     
     # SCP Upload
@@ -297,7 +344,8 @@ EOF
         local upload_file="${backup_file}"
         local upload_name="${backup_name}"
         
-        if [ -n "${ENCRYPTION_KEY}" ]; then
+        if [ "${is_encrypted}" = "false" ] && [ -n "${ENCRYPTION_KEY}" ]; then
+            # Only encrypt if not already encrypted
             upload_file="${backup_file}.enc"
             upload_name="${backup_name}.enc"
             openssl enc -aes-256-cbc -salt -in "${backup_file}" -out "${upload_file}" -k "${ENCRYPTION_KEY}" || {
@@ -316,15 +364,16 @@ EOF
             log "WARNING: SCP upload failed"
         fi
         
-        [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
+        [ "${is_encrypted}" = "false" ] && [ -n "${ENCRYPTION_KEY}" ] && rm -f "${upload_file}"
     fi
 }
 
 # Upload the backup
 upload_backup "${FINAL_BACKUP}" "${BACKUP_NAME}.tar.gz"
 
-# 7. Cleanup old backups
+# 8. Cleanup old backups
 log "Cleaning up old backups (older than ${BACKUP_RETENTION_DAYS} days)..."
-find "${BACKUP_DIR}" -name "passbolt-backup-*.tar.gz" -type f -mtime +${BACKUP_RETENTION_DAYS} -delete || log "WARNING: Could not clean up old backups"
+find "${BACKUP_DIR}" -name "passbolt-backup-*.tar.gz" -type f -mtime +${BACKUP_RETENTION_DAYS} -delete || log "WARNING: Could not clean up old unencrypted backups"
+find "${BACKUP_DIR}" -name "passbolt-backup-*.tar.gz.enc" -type f -mtime +${BACKUP_RETENTION_DAYS} -delete || log "WARNING: Could not clean up old encrypted backups"
 
 log "Backup process completed successfully"

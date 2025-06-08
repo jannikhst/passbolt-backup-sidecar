@@ -10,9 +10,11 @@ Docker container that automatically creates backups of Passbolt installations on
 - **Container metadata** and configuration
 - **Compressed .tar.gz archives** with configurable compression
 - **Multiple upload methods**: HTTP POST, FTP, SFTP, SCP
-- **AES-256-CBC encryption** for all backup methods
-- **Automatic cleanup** of old backups
+- **AES-256-CBC encryption** for local and remote backups
+- **Timestamped backup names** with seconds precision for uniqueness
+- **Automatic cleanup** of old backups (encrypted and unencrypted)
 - **Comprehensive restore script** with selective restore options
+- **Auto-detection of encrypted backups** during restore
 - **Dry-run mode** for testing
 
 ## Quick Start
@@ -269,11 +271,32 @@ openssl enc -aes-256-cbc -salt -in backup.tar.gz -out backup.tar.gz.enc -k "Your
 openssl enc -aes-256-cbc -d -in backup.tar.gz.enc -out backup.tar.gz -k "YourEncryptionKey"
 ```
 
+### Local Backup Encryption
+
+When `ENCRYPTION_KEY` is set, **local backups are also encrypted automatically**:
+
+- ✅ **Local storage** - Backups stored locally are encrypted with `.enc` extension
+- ✅ **Security** - Unencrypted local backups are automatically deleted after encryption
+- ✅ **Smart uploads** - Already encrypted backups avoid double encryption during upload
+- ✅ **Auto-detection** - Restore script automatically detects encrypted backups by `.enc` extension
+
+### Backup Naming with Timestamps
+
+Backups now include seconds in timestamps for better uniqueness:
+
+- **Format**: `passbolt-backup-YYYY-MM-DD_HH-MM-SS.tar.gz`
+- **Example**: `passbolt-backup-2025-01-08_11-30-45.tar.gz`
+- **Encrypted**: `passbolt-backup-2025-01-08_11-30-45.tar.gz.enc`
+
+This prevents conflicts when multiple backups are created in the same minute.
+
 ### Important Notes
 - 🔒 **Optional**: Only encrypts when `ENCRYPTION_KEY` is set
 - 🌐 **Universal**: Works with all upload methods automatically
 - 🔐 **Secure**: Uses AES-256-CBC with salt
 - 🧹 **Clean**: Temporary encrypted files are automatically deleted after upload
+- ⏰ **Unique**: Timestamp includes seconds to prevent filename conflicts
+- 🔍 **Smart**: Restore script auto-detects encrypted backups
 
 ## License
 
