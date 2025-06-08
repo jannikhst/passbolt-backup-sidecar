@@ -15,9 +15,92 @@ PASSBOLT_CONTAINER="${PASSBOLT_CONTAINER:-passbolt}"
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
 ENCRYPTION_KEY="${ENCRYPTION_KEY:-}"
 
+# Check if Docker socket is available
+DOCKER_AVAILABLE=false
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    DOCKER_AVAILABLE=true
+fi
+
 # Logging function
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# Function to wait for user confirmation
+wait_for_user_action() {
+    local action="$1"
+    echo ""
+    echo "MANUAL ACTION REQUIRED:"
+    echo "$action"
+    echo ""
+    echo "NOTE: This manual step can be automated by mounting the Docker socket:"
+    echo "  volumes:"
+    echo "    - /var/run/docker.sock:/var/run/docker.sock"
+    echo ""
+    read -p "Press Enter when you have completed this action..." -r
+}
+
+# Function to stop container (with Docker socket or manual)
+stop_container() {
+    local container="$1"
+    if [ "$DOCKER_AVAILABLE" = true ]; then
+        log "Stopping $container container..."
+        docker stop "$container" 2>/dev/null || log "WARNING: Could not stop $container container"
+    else
+        wait_for_user_action "Please stop the $container container manually:
+  docker stop $container"
+    fi
+}
+
+# Function to start container (with Docker socket or manual)
+start_container() {
+    local container="$1"
+    if [ "$DOCKER_AVAILABLE" = true ]; then
+        log "Starting $container container..."
+        docker start "$container" 2>/dev/null || log "WARNING: Could not start $container container"
+    else
+        wait_for_user_action "Please start the $container container manually:
+  docker start $container"
+    fi
+}
+
+# Function to restart container (with Docker socket or manual)
+restart_container() {
+    local container="$1"
+    if [ "$DOCKER_AVAILABLE" = true ]; then
+        log "Restarting $container container..."
+        docker restart "$container" || log "WARNING: Could not restart $container container"
+    else
+        wait_for_user_action "Please restart the $container container manually:
+  docker restart $container"
+    fi
+}
+
+# Function to copy files to container (with Docker socket or manual)
+copy_to_container() {
+    local source="$1"
+    local container="$2"
+    local destination="$3"
+    
+    if [ "$DOCKER_AVAILABLE" = true ]; then
+        docker cp "$source" "$container:$destination" || error_exit "Failed to copy $source to container"
+    else
+        wait_for_user_action "Please copy the file to the container manually:
+  docker cp $source $container:$destination"
+    fi
+}
+
+# Function to execute command in container (with Docker socket or manual)
+exec_in_container() {
+    local container="$1"
+    local command="$2"
+    
+    if [ "$DOCKER_AVAILABLE" = true ]; then
+        docker exec "$container" bash -c "$command" || error_exit "Failed to execute command in container"
+    else
+        wait_for_user_action "Please execute the following command in the $container container manually:
+  docker exec $container bash -c \"$command\""
+    fi
 }
 
 # Error handling
@@ -117,6 +200,14 @@ fi
 
 log "Starting Passbolt restore from: $BACKUP_FILE"
 
+# Show Docker availability status
+if [ "$DOCKER_AVAILABLE" = true ]; then
+    log "Docker socket available - container operations will be automated"
+else
+    log "Docker socket not available - manual container operations will be required"
+    log "To enable automation, mount Docker socket: -v /var/run/docker.sock:/var/run/docker.sock"
+fi
+
 # Create temporary directory
 TEMP_DIR="/tmp/passbolt-restore-$(date +%s)"
 mkdir -p "$TEMP_DIR" || error_exit "Failed to create temporary directory"
@@ -199,8 +290,7 @@ if [ "$RESTORE_DATABASE" = true ]; then
         fi
         
         # Stop Passbolt container temporarily
-        log "Stopping Passbolt container..."
-        docker stop "$PASSBOLT_CONTAINER" 2>/dev/null || log "WARNING: Could not stop Passbolt container"
+        stop_container "$PASSBOLT_CONTAINER"
         
         # Restore database
         mysql \
@@ -213,8 +303,7 @@ if [ "$RESTORE_DATABASE" = true ]; then
         log "Database restored successfully"
         
         # Start Passbolt container
-        log "Starting Passbolt container..."
-        docker start "$PASSBOLT_CONTAINER" 2>/dev/null || log "WARNING: Could not start Passbolt container"
+        start_container "$PASSBOLT_CONTAINER"
     else
         log "WARNING: No database backup found in archive"
     fi
@@ -226,17 +315,17 @@ if [ "$RESTORE_GPG" = true ]; then
         log "Restoring GPG keys..."
         
         # Copy GPG keys to container
-        docker cp "$BACKUP_EXTRACT_DIR/gpg-keys.tar.gz" "$PASSBOLT_CONTAINER:/tmp/" || error_exit "Failed to copy GPG keys to container"
+        copy_to_container "$BACKUP_EXTRACT_DIR/gpg-keys.tar.gz" "$PASSBOLT_CONTAINER" "/tmp/"
         
         # Extract GPG keys in container
-        docker exec "$PASSBOLT_CONTAINER" bash -c "
+        exec_in_container "$PASSBOLT_CONTAINER" "
             cd /tmp && 
             tar -xzf gpg-keys.tar.gz && 
             rm -rf /etc/passbolt/gpg/* && 
             cp -r gpg/* /etc/passbolt/gpg/ && 
             chown -R www-data:www-data /etc/passbolt/gpg && 
             rm -rf gpg gpg-keys.tar.gz
-        " || error_exit "Failed to restore GPG keys"
+        "
         
         log "GPG keys restored successfully"
     else
@@ -250,13 +339,18 @@ if [ "$RESTORE_CONFIG" = true ]; then
         log "Restoring Passbolt configuration..."
         
         # Backup current config
-        docker exec "$PASSBOLT_CONTAINER" cp /etc/passbolt/passbolt.php /etc/passbolt/passbolt.php.backup.$(date +%s) 2>/dev/null || true
+        if [ "$DOCKER_AVAILABLE" = true ]; then
+            docker exec "$PASSBOLT_CONTAINER" cp /etc/passbolt/passbolt.php /etc/passbolt/passbolt.php.backup.$(date +%s) 2>/dev/null || true
+        else
+            wait_for_user_action "Please backup the current configuration manually:
+  docker exec $PASSBOLT_CONTAINER cp /etc/passbolt/passbolt.php /etc/passbolt/passbolt.php.backup.$(date +%s)"
+        fi
         
         # Copy new config to container
-        docker cp "$BACKUP_EXTRACT_DIR/passbolt.php" "$PASSBOLT_CONTAINER:/etc/passbolt/passbolt.php" || error_exit "Failed to restore configuration"
+        copy_to_container "$BACKUP_EXTRACT_DIR/passbolt.php" "$PASSBOLT_CONTAINER" "/etc/passbolt/passbolt.php"
         
         # Set proper permissions
-        docker exec "$PASSBOLT_CONTAINER" chown www-data:www-data /etc/passbolt/passbolt.php || log "WARNING: Could not set config permissions"
+        exec_in_container "$PASSBOLT_CONTAINER" "chown www-data:www-data /etc/passbolt/passbolt.php"
         
         log "Configuration restored successfully"
     else
@@ -265,8 +359,7 @@ if [ "$RESTORE_CONFIG" = true ]; then
 fi
 
 # Restart Passbolt container to apply changes
-log "Restarting Passbolt container..."
-docker restart "$PASSBOLT_CONTAINER" || log "WARNING: Could not restart Passbolt container"
+restart_container "$PASSBOLT_CONTAINER"
 
 log "Restore completed successfully!"
 log "Please verify that Passbolt is working correctly."
