@@ -15,10 +15,22 @@ PASSBOLT_CONTAINER="${PASSBOLT_CONTAINER:-passbolt}"
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
 ENCRYPTION_KEY="${ENCRYPTION_KEY:-}"
 
-# Check if Docker socket is available
+# Volume mount paths (if available)
+PASSBOLT_GPG_VOLUME="${PASSBOLT_GPG_VOLUME:-}"
+PASSBOLT_CONFIG_VOLUME="${PASSBOLT_CONFIG_VOLUME:-}"
+
+# Check available access methods
 DOCKER_AVAILABLE=false
+VOLUME_ACCESS=false
+
+# Check if Docker socket is available
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     DOCKER_AVAILABLE=true
+fi
+
+# Check if volume mounts are available
+if [ -n "$PASSBOLT_GPG_VOLUME" ] && [ -d "$PASSBOLT_GPG_VOLUME" ]; then
+    VOLUME_ACCESS=true
 fi
 
 # Logging function
@@ -76,7 +88,7 @@ restart_container() {
     fi
 }
 
-# Function to copy files to container (with Docker socket or manual)
+# Function to copy files to container (with Docker socket, volume mount, or manual)
 copy_to_container() {
     local source="$1"
     local container="$2"
@@ -100,6 +112,81 @@ exec_in_container() {
     else
         wait_for_user_action "Please execute the following command in the $container container manually:
   docker exec $container bash -c \"$command\""
+    fi
+}
+
+# Function to restore GPG keys (with volume mount or container access)
+restore_gpg_keys() {
+    local gpg_backup="$1"
+    
+    if [ "$VOLUME_ACCESS" = true ]; then
+        log "Restoring GPG keys via volume mount..."
+        
+        # Extract GPG keys to temporary directory
+        local temp_gpg_dir="$TEMP_DIR/gpg-restore"
+        mkdir -p "$temp_gpg_dir"
+        cd "$temp_gpg_dir"
+        tar -xzf "$gpg_backup" || error_exit "Failed to extract GPG keys"
+        
+        # Copy GPG keys directly to volume
+        rm -rf "$PASSBOLT_GPG_VOLUME"/* || error_exit "Failed to clear existing GPG keys"
+        cp -r gpg/* "$PASSBOLT_GPG_VOLUME/" || error_exit "Failed to copy GPG keys to volume"
+        
+        log "GPG keys restored successfully via volume mount"
+    else
+        log "Restoring GPG keys via container access..."
+        
+        # Copy GPG keys to container
+        copy_to_container "$gpg_backup" "$PASSBOLT_CONTAINER" "/tmp/"
+        
+        # Extract GPG keys in container
+        exec_in_container "$PASSBOLT_CONTAINER" "
+            cd /tmp && 
+            tar -xzf gpg-keys.tar.gz && 
+            rm -rf /etc/passbolt/gpg/* && 
+            cp -r gpg/* /etc/passbolt/gpg/ && 
+            chown -R www-data:www-data /etc/passbolt/gpg && 
+            rm -rf gpg gpg-keys.tar.gz
+        "
+        
+        log "GPG keys restored successfully via container access"
+    fi
+}
+
+# Function to restore configuration (with volume mount or container access)
+restore_config() {
+    local config_backup="$1"
+    
+    if [ "$VOLUME_ACCESS" = true ] && [ -n "$PASSBOLT_CONFIG_VOLUME" ] && [ -d "$PASSBOLT_CONFIG_VOLUME" ]; then
+        log "Restoring configuration via volume mount..."
+        
+        # Backup current config
+        if [ -f "$PASSBOLT_CONFIG_VOLUME/passbolt.php" ]; then
+            cp "$PASSBOLT_CONFIG_VOLUME/passbolt.php" "$PASSBOLT_CONFIG_VOLUME/passbolt.php.backup.$(date +%s)" || true
+        fi
+        
+        # Copy new config to volume
+        cp "$config_backup" "$PASSBOLT_CONFIG_VOLUME/passbolt.php" || error_exit "Failed to restore configuration to volume"
+        
+        log "Configuration restored successfully via volume mount"
+    else
+        log "Restoring configuration via container access..."
+        
+        # Backup current config
+        if [ "$DOCKER_AVAILABLE" = true ]; then
+            docker exec "$PASSBOLT_CONTAINER" cp /etc/passbolt/passbolt.php /etc/passbolt/passbolt.php.backup.$(date +%s) 2>/dev/null || true
+        else
+            wait_for_user_action "Please backup the current configuration manually:
+  docker exec $PASSBOLT_CONTAINER cp /etc/passbolt/passbolt.php /etc/passbolt/passbolt.php.backup.$(date +%s)"
+        fi
+        
+        # Copy new config to container
+        copy_to_container "$config_backup" "$PASSBOLT_CONTAINER" "/etc/passbolt/passbolt.php"
+        
+        # Set proper permissions
+        exec_in_container "$PASSBOLT_CONTAINER" "chown www-data:www-data /etc/passbolt/passbolt.php"
+        
+        log "Configuration restored successfully via container access"
     fi
 }
 
@@ -200,12 +287,18 @@ fi
 
 log "Starting Passbolt restore from: $BACKUP_FILE"
 
-# Show Docker availability status
+# Show access method status
 if [ "$DOCKER_AVAILABLE" = true ]; then
     log "Docker socket available - container operations will be automated"
+elif [ "$VOLUME_ACCESS" = true ]; then
+    log "Volume mount access available - direct file operations will be used"
+    log "GPG volume: $PASSBOLT_GPG_VOLUME"
+    [ -n "$PASSBOLT_CONFIG_VOLUME" ] && log "Config volume: $PASSBOLT_CONFIG_VOLUME"
 else
-    log "Docker socket not available - manual container operations will be required"
-    log "To enable automation, mount Docker socket: -v /var/run/docker.sock:/var/run/docker.sock"
+    log "No direct access available - manual container operations will be required"
+    log "To enable automation, either:"
+    log "  1. Mount Docker socket: -v /var/run/docker.sock:/var/run/docker.sock"
+    log "  2. Mount volumes and set PASSBOLT_GPG_VOLUME environment variable"
 fi
 
 # Create temporary directory
@@ -312,22 +405,7 @@ fi
 # Restore GPG keys
 if [ "$RESTORE_GPG" = true ]; then
     if [ -f "$BACKUP_EXTRACT_DIR/gpg-keys.tar.gz" ]; then
-        log "Restoring GPG keys..."
-        
-        # Copy GPG keys to container
-        copy_to_container "$BACKUP_EXTRACT_DIR/gpg-keys.tar.gz" "$PASSBOLT_CONTAINER" "/tmp/"
-        
-        # Extract GPG keys in container
-        exec_in_container "$PASSBOLT_CONTAINER" "
-            cd /tmp && 
-            tar -xzf gpg-keys.tar.gz && 
-            rm -rf /etc/passbolt/gpg/* && 
-            cp -r gpg/* /etc/passbolt/gpg/ && 
-            chown -R www-data:www-data /etc/passbolt/gpg && 
-            rm -rf gpg gpg-keys.tar.gz
-        "
-        
-        log "GPG keys restored successfully"
+        restore_gpg_keys "$BACKUP_EXTRACT_DIR/gpg-keys.tar.gz"
     else
         log "WARNING: No GPG keys backup found in archive"
     fi
@@ -336,23 +414,7 @@ fi
 # Restore configuration
 if [ "$RESTORE_CONFIG" = true ]; then
     if [ -f "$BACKUP_EXTRACT_DIR/passbolt.php" ]; then
-        log "Restoring Passbolt configuration..."
-        
-        # Backup current config
-        if [ "$DOCKER_AVAILABLE" = true ]; then
-            docker exec "$PASSBOLT_CONTAINER" cp /etc/passbolt/passbolt.php /etc/passbolt/passbolt.php.backup.$(date +%s) 2>/dev/null || true
-        else
-            wait_for_user_action "Please backup the current configuration manually:
-  docker exec $PASSBOLT_CONTAINER cp /etc/passbolt/passbolt.php /etc/passbolt/passbolt.php.backup.$(date +%s)"
-        fi
-        
-        # Copy new config to container
-        copy_to_container "$BACKUP_EXTRACT_DIR/passbolt.php" "$PASSBOLT_CONTAINER" "/etc/passbolt/passbolt.php"
-        
-        # Set proper permissions
-        exec_in_container "$PASSBOLT_CONTAINER" "chown www-data:www-data /etc/passbolt/passbolt.php"
-        
-        log "Configuration restored successfully"
+        restore_config "$BACKUP_EXTRACT_DIR/passbolt.php"
     else
         log "WARNING: No configuration backup found in archive"
     fi
