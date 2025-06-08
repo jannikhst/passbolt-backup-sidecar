@@ -106,7 +106,7 @@ else
     # Use direct volume access method
     if [ -d "${PASSBOLT_GPG_VOLUME}" ]; then
         # Create temporary directory with same structure as docker exec method
-        local temp_gpg_dir="/tmp/gpg-backup-$$"
+        temp_gpg_dir="/tmp/gpg-backup-$$"
         mkdir -p "${temp_gpg_dir}/gpg"
         
         # Copy GPG files to temporary directory with gpg subdirectory structure
