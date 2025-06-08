@@ -105,7 +105,19 @@ if [ "${USE_DOCKER_EXEC}" = "true" ]; then
 else
     # Use direct volume access method
     if [ -d "${PASSBOLT_GPG_VOLUME}" ]; then
-        tar -czf "${TEMP_DIR}/gpg-keys.tar.gz" -C "${PASSBOLT_GPG_VOLUME}" . || error_exit "GPG keys backup failed"
+        # Create temporary directory with same structure as docker exec method
+        local temp_gpg_dir="/tmp/gpg-backup-$$"
+        mkdir -p "${temp_gpg_dir}/gpg"
+        
+        # Copy GPG files to temporary directory with gpg subdirectory structure
+        cp -r "${PASSBOLT_GPG_VOLUME}"/* "${temp_gpg_dir}/gpg/" || error_exit "Failed to copy GPG keys to temporary directory"
+        
+        # Create archive with same structure as docker exec method
+        tar -czf "${TEMP_DIR}/gpg-keys.tar.gz" -C "${temp_gpg_dir}" gpg || error_exit "GPG keys backup failed"
+        
+        # Clean up temporary directory
+        rm -rf "${temp_gpg_dir}"
+        
         log "GPG keys backup completed (via direct volume access)"
     else
         log "WARNING: GPG keys volume not found: ${PASSBOLT_GPG_VOLUME}"
