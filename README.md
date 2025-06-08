@@ -1,6 +1,6 @@
 # Passbolt Backup Sidecar
 
-Docker container that automatically creates backups of Passbolt installations every 12 hours.
+Docker container that automatically creates backups of Passbolt installations on a schedule.
 
 ## Features
 
