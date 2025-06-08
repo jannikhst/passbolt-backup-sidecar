@@ -37,10 +37,21 @@ SCP_PATH="${SCP_PATH:-/backups}"
 ENCRYPTION_KEY="${ENCRYPTION_KEY:-}"
 COMPRESSION_LEVEL="${COMPRESSION_LEVEL:-6}"
 
+# Volume mount paths (alternative to docker exec)
+PASSBOLT_GPG_VOLUME="${PASSBOLT_GPG_VOLUME:-}"
+PASSBOLT_CONFIG_VOLUME="${PASSBOLT_CONFIG_VOLUME:-}"
+
 # Logging function
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a /var/log/backup.log
 }
+
+# Detect access method
+USE_DOCKER_EXEC=true
+if [ -n "${PASSBOLT_GPG_VOLUME}" ] && [ -d "${PASSBOLT_GPG_VOLUME}" ]; then
+    USE_DOCKER_EXEC=false
+    log "Using direct volume access for GPG keys: ${PASSBOLT_GPG_VOLUME}"
+fi
 
 # Error handling
 error_exit() {
@@ -81,18 +92,44 @@ log "Database backup completed"
 
 # 2. GPG Keys Backup
 log "Backing up GPG keys..."
-if docker exec "${PASSBOLT_CONTAINER}" test -d /etc/passbolt/gpg 2>/dev/null; then
-    docker exec "${PASSBOLT_CONTAINER}" tar -czf - -C /etc/passbolt gpg > "${TEMP_DIR}/gpg-keys.tar.gz" || error_exit "GPG keys backup failed"
-    log "GPG keys backup completed"
+if [ "${USE_DOCKER_EXEC}" = "true" ]; then
+    # Use docker exec method
+    if docker exec "${PASSBOLT_CONTAINER}" test -d /etc/passbolt/gpg 2>/dev/null; then
+        docker exec "${PASSBOLT_CONTAINER}" tar -czf - -C /etc/passbolt gpg > "${TEMP_DIR}/gpg-keys.tar.gz" || error_exit "GPG keys backup failed"
+        log "GPG keys backup completed (via docker exec)"
+    else
+        log "WARNING: GPG keys directory not found in container"
+        touch "${TEMP_DIR}/gpg-keys-not-found.txt"
+    fi
 else
-    log "WARNING: GPG keys directory not found in container"
-    touch "${TEMP_DIR}/gpg-keys-not-found.txt"
+    # Use direct volume access method
+    if [ -d "${PASSBOLT_GPG_VOLUME}" ]; then
+        tar -czf "${TEMP_DIR}/gpg-keys.tar.gz" -C "${PASSBOLT_GPG_VOLUME}" . || error_exit "GPG keys backup failed"
+        log "GPG keys backup completed (via direct volume access)"
+    else
+        log "WARNING: GPG keys volume not found: ${PASSBOLT_GPG_VOLUME}"
+        touch "${TEMP_DIR}/gpg-keys-not-found.txt"
+    fi
 fi
 
 # 3. Passbolt Configuration Backup
 log "Backing up Passbolt configuration..."
-if docker exec "${PASSBOLT_CONTAINER}" test -f /etc/passbolt/passbolt.php 2>/dev/null; then
-    docker exec "${PASSBOLT_CONTAINER}" cat /etc/passbolt/passbolt.php > "${TEMP_DIR}/passbolt.php" || log "WARNING: Could not backup passbolt.php"
+if [ "${USE_DOCKER_EXEC}" = "true" ]; then
+    # Use docker exec method
+    if docker exec "${PASSBOLT_CONTAINER}" test -f /etc/passbolt/passbolt.php 2>/dev/null; then
+        docker exec "${PASSBOLT_CONTAINER}" cat /etc/passbolt/passbolt.php > "${TEMP_DIR}/passbolt.php" || log "WARNING: Could not backup passbolt.php"
+        log "Configuration backup completed (via docker exec)"
+    fi
+else
+    # Use direct volume access method
+    if [ -n "${PASSBOLT_CONFIG_VOLUME}" ] && [ -f "${PASSBOLT_CONFIG_VOLUME}/passbolt.php" ]; then
+        cp "${PASSBOLT_CONFIG_VOLUME}/passbolt.php" "${TEMP_DIR}/passbolt.php" || log "WARNING: Could not backup passbolt.php"
+        log "Configuration backup completed (via direct volume access)"
+    elif [ -f "${PASSBOLT_GPG_VOLUME}/../passbolt.php" ]; then
+        # Fallback: try to find config in parent directory of GPG volume
+        cp "${PASSBOLT_GPG_VOLUME}/../passbolt.php" "${TEMP_DIR}/passbolt.php" || log "WARNING: Could not backup passbolt.php"
+        log "Configuration backup completed (via direct volume access - fallback)"
+    fi
 fi
 
 # 4. Container Metadata

@@ -142,6 +142,33 @@ SCP_KEY_FILE=/keys/scp_key
 SCP_PATH=/backups
 ```
 
+## Docker Socket Access
+
+The backup container needs access to the Docker socket (`/var/run/docker.sock`) to:
+
+- **Access the Passbolt container** to backup GPG keys from `/etc/passbolt/gpg`
+- **Read configuration files** like `passbolt.php` from the Passbolt container
+- **Collect container metadata** for backup documentation
+- **Execute commands** inside the Passbolt container during backup and restore
+
+This is why the docker-compose.yml includes:
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+```
+
+**Alternative**: Instead of Docker socket access, you can mount Passbolt volumes directly:
+```yaml
+volumes:
+  - passbolt_gpg_data:/passbolt-data/gpg:ro
+  - passbolt_config:/passbolt-data/config:ro
+environment:
+  - PASSBOLT_GPG_VOLUME=/passbolt-data/gpg
+  - PASSBOLT_CONFIG_VOLUME=/passbolt-data/config
+```
+
+The backup script automatically detects which method is available and uses the appropriate approach. When `PASSBOLT_GPG_VOLUME` is set and the directory exists, it uses direct volume access instead of Docker socket commands.
+
 ## Manual Operations
 
 ### Manual Backup
