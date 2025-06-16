@@ -15,6 +15,9 @@ chmod 644 /var/log/backup.log
 # Ensure backup directory exists
 mkdir -p /backups
 
+# Export all environment variables to a file that cron can source
+printenv | grep -E '^(MYSQL_|PASSBOLT_|BACKUP_|HTTP_|FTP_|SFTP_|SCP_|ENCRYPTION_|COMPRESSION_)' > /etc/environment
+
 # Setup custom cron schedule
 /usr/local/bin/setup-cron.sh
 

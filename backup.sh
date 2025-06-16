@@ -5,6 +5,13 @@
 
 set -e
 
+# Source environment variables (needed for cron)
+if [ -f /etc/environment ]; then
+    set -a
+    source /etc/environment
+    set +a
+fi
+
 # Configuration from environment variables
 MYSQL_HOST="${MYSQL_HOST:-passbolt-db}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"

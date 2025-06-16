@@ -1,4 +1,4 @@
 # Passbolt Backup Cron Job - runs every 12 hours
-0 */12 * * * /usr/local/bin/backup.sh >> /var/log/cron.log 2>&1
+0 */12 * * * root /usr/local/bin/backup.sh >> /var/log/cron.log 2>&1
 
 # Empty line required at end of crontab file
