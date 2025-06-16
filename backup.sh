@@ -5,11 +5,18 @@
 
 set -e
 
+# Add debugging output
+echo "[DEBUG] $(date '+%Y-%m-%d %H:%M:%S') - Backup script started"
+
 # Source environment variables (needed for cron)
 if [ -f /etc/environment ]; then
+    echo "[DEBUG] $(date '+%Y-%m-%d %H:%M:%S') - Sourcing /etc/environment"
     set -a
     source /etc/environment
     set +a
+    echo "[DEBUG] $(date '+%Y-%m-%d %H:%M:%S') - Environment variables loaded successfully"
+else
+    echo "[DEBUG] $(date '+%Y-%m-%d %H:%M:%S') - /etc/environment not found, using container environment"
 fi
 
 # Configuration from environment variables
